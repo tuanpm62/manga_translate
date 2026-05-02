@@ -7,19 +7,23 @@ title Manga Translate
 set "ROOT=%~dp0"
 if "%ROOT:~-1%"=="\" set "ROOT=%ROOT:~0,-1%"
 
-:: ── locate %MT% (PATH first, then Python Scripts fallback) ────────
+:: ── locate %MT%: venv first, then PATH, then Python Scripts fallback ──
 set "MT=manga-translate"
 set "MT_READY=0"
-where %MT% >nul 2>&1
-if not errorlevel 1 (
+if exist "%ROOT%\.venv\Scripts\manga-translate.exe" (
+    set "MT=%ROOT%\.venv\Scripts\manga-translate.exe"
     set "MT_READY=1"
 ) else (
-    :: ask Python where its Scripts folder is
-    for /f "delims=" %%i in ('python -c "import sysconfig; print(sysconfig.get_path(\"scripts\"))" 2^>nul') do set "PY_SCRIPTS=%%i"
-    if defined PY_SCRIPTS (
-        if exist "!PY_SCRIPTS!\manga-translate.exe" (
-            set "MT=!PY_SCRIPTS!\manga-translate.exe"
-            set "MT_READY=1"
+    where manga-translate >nul 2>&1
+    if not errorlevel 1 (
+        set "MT_READY=1"
+    ) else (
+        for /f "delims=" %%i in ('python -c "import sysconfig; print(sysconfig.get_path(\"scripts\"))" 2^>nul') do set "PY_SCRIPTS=%%i"
+        if defined PY_SCRIPTS (
+            if exist "!PY_SCRIPTS!\manga-translate.exe" (
+                set "MT=!PY_SCRIPTS!\manga-translate.exe"
+                set "MT_READY=1"
+            )
         )
     )
 )
@@ -213,32 +217,65 @@ echo.
 pause
 goto :MENU
 
-:: ── [I] Install ───────────────────────────────────────────────────────────
+:: ── [I] Install / update — smart flow ────────────────────────────────────
 :INSTALL
 cls
-echo  [Install / update dependencies]
-echo.
-pip install -e "%ROOT%"
-pip install websockets pyperclip
+echo  [Install / update — checking requirements]
 echo.
 
-:: ── add Python Scripts to PATH for this session ───────────────────────────
-for /f "delims=" %%i in ('python -c "import sysconfig; print(sysconfig.get_path(\"scripts\"))"') do set "PY_SCRIPTS=%%i"
-if defined PY_SCRIPTS (
-    set "PATH=%PY_SCRIPTS%;%PATH%"
-    echo  Added to PATH (this session): %PY_SCRIPTS%
-)
-
-:: ── re-check ──────────────────────────────────────────────────────────────
-set "MT_READY=1"
-where %MT% >nul 2>&1
-if errorlevel 1 (
-    set "MT_READY=0"
-    echo  [!] %MT% still not found.
-    echo      Add the Python Scripts folder to your system PATH permanently,
-    echo      or run this launcher from the same terminal where pip installed it.
+:: ── Step 1: Virtual environment ───────────────────────────────────────────
+echo  [1/2] Virtual environment
+if exist "%ROOT%\.venv\Scripts\python.exe" (
+    echo        [OK] .venv already exists — will use it.
+    set "USE_VENV=1"
 ) else (
-    echo  [OK] %MT% is ready.
+    echo        [--] No .venv found.
+    set /p "CREATEVENV=        Create virtual environment? [Y/n] "
+    if /i "!CREATEVENV!"=="n" (
+        set "USE_VENV=0"
+        echo        Using current Python environment.
+    ) else (
+        echo        Creating %ROOT%\.venv ...
+        python -m venv "%ROOT%\.venv"
+        set "USE_VENV=1"
+        echo        [OK] Created.
+    )
+)
+echo.
+
+:: ── Step 2: Install package ───────────────────────────────────────────────
+echo  [2/2] Package ^(manga_translate^)
+if "!USE_VENV!"=="1" (
+    set "INST_PIP=%ROOT%\.venv\Scripts\pip.exe"
+    "!INST_PIP!" install --upgrade pip --quiet
+) else (
+    set "INST_PIP=pip"
+)
+"!INST_PIP!" install -e "%ROOT%"
+echo        [OK] manga_translate installed/updated.
+echo.
+
+:: ── Refresh MT path ───────────────────────────────────────────────────────
+if "!USE_VENV!"=="1" (
+    if exist "%ROOT%\.venv\Scripts\manga-translate.exe" (
+        set "MT=%ROOT%\.venv\Scripts\manga-translate.exe"
+        set "MT_READY=1"
+        echo  [OK] manga-translate is ready ^(venv^).
+    ) else (
+        set "MT_READY=0"
+        echo  [!] manga-translate not found in .venv\Scripts — pip install may have failed.
+    )
+) else (
+    for /f "delims=" %%i in ('python -c "import sysconfig; print(sysconfig.get_path(\"scripts\"))"') do set "PY_SCRIPTS=%%i"
+    if defined PY_SCRIPTS set "PATH=!PY_SCRIPTS!;%PATH%"
+    where manga-translate >nul 2>&1
+    if not errorlevel 1 (
+        set "MT_READY=1"
+        echo  [OK] manga-translate is ready.
+    ) else (
+        set "MT_READY=0"
+        echo  [!] manga-translate not found — add Python Scripts to PATH.
+    )
 )
 echo.
 pause
